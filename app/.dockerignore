@@ -1,0 +1,12 @@
+# Don't copy these into the Docker image
+__pycache__/
+*.pyc
+*.pyo
+tests/
+.gitignore
+Dockerfile
+.dockerignore
+
+# These aren't needed to run the app
+*.md
+.DS_Store
