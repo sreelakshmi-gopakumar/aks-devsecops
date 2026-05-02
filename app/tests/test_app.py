@@ -41,3 +41,11 @@ def test_root_endpoint(client):
     """Test that / returns 200"""
     response = client.get('/')
     assert response.status_code == 200
+
+def test_api_info_endpoint(client):
+    """Test the new /api/info endpoint returns project info"""
+    response = client.get('/api/info')
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data['author'] == 'Sreelakshmi Vattapparambil Gopakumar'
+    assert data['version'] == '2.0.0'

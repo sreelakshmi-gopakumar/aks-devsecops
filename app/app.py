@@ -1149,6 +1149,26 @@ setInterval(addLog, 2500);
 def root():
     log_entry("GET", "/", 200)
     return render_template_string(HTML_TEMPLATE)
+@app.route("/api/info")
+def api_info():
+    """Returns project information as JSON - useful for testing"""
+    log_entry("GET", "/api/info", 200)
+    return jsonify({
+        "project": "AKS DevSecOps",
+        "author": "Sreelakshmi Vattapparambil Gopakumar",
+        "course": "CSCI 516 - Engineering Cloud Computing",
+        "university": "Indiana University Indianapolis",
+        "professor": "Prof. Arjan Durresi",
+        "version": "2.0.0",
+        "features": [
+            "Flask web application",
+            "Docker containerization",
+            "Azure Kubernetes Service",
+            "GitHub Actions CI/CD",
+            "Prometheus + Grafana monitoring",
+            "Agentic AI security auditing"
+        ]
+    })
 
 @app.route("/health")
 def health():
