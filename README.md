@@ -27,7 +27,7 @@ Each layer has one job:
 | CI/CD | GitHub Actions | Runs tests and deploys automatically on every push |
 | Cluster | Azure AKS | Runs and manages the containers in the cloud |
 | Monitoring | Prometheus + Grafana | Tracks CPU, memory, and traffic in real time |
-| Security | Agentic AI (Llama3) | Scans for misconfigurations and fixes them automatically |
+| Security | Agentic AI (Llama3.3-70b) | Scans for misconfigurations and fixes them automatically |
 
 ---
 
@@ -103,7 +103,7 @@ This agent actually does something about what it finds.
 
 It works in a loop:
 1. Reads the cluster configuration using kubectl
-2. Sends it to an LLM (Llama3 via Groq) which decides what to check next
+2. Sends it to an LLM (Llama3.3-70b via Groq) which decides what to check next
 3. The LLM calls tools — like `get_deployments` or `get_network_policies`
 4. If it finds a LOW or MEDIUM severity issue, it applies a fix automatically
 5. It logs everything and keeps going until the audit is done
