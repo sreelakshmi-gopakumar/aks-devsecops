@@ -1,146 +1,97 @@
 name: CI/CD Pipeline
 
-# This pipeline runs automatically every time you push code to main branch
-
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
 
-# IMAGE is the address of our Docker image on GitHub Container Registry
-# We define it here once so all jobs can use it
 env:
   IMAGE: ghcr.io/sreelakshmi-gopakumar/flask-app
 
 jobs:
 
-  # ═══ JOB 1: TEST ═══════════════════════════════════════════════
-  # First thing we do is make sure the code works
-  # If tests fail, nothing else runs — broken code never gets deployed
   test:
-    name: Run Tests
+    name: Run tests
     runs-on: ubuntu-latest
-    # runs-on: GitHub gives us a free fresh Ubuntu Linux machine
-    # It's like borrowing a computer for 5 minutes to run your tests
-
-    steps:
-      - name: Download our code onto the virtual machine
-        uses: actions/checkout@v4
-        # The VM starts empty — this downloads your repo onto it
-
-      - name: Install Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Flask and pytest
-        run: pip install -r app/requirements.txt pytest
-
-      - name: Run the 3 tests we wrote
-        run: pytest app/tests/ -v
-        # -v means verbose — shows each test name and pass/fail
-        # If any test fails here, the whole pipeline stops
-        # The deploy job never runs — safety guaranteed
-
-  # ═══ JOB 2: BUILD AND PUSH IMAGE ═══════════════════════════════
-  # Now we package the app into a Docker image and upload it to GitHub
-  build-push:
-    name: Build and Push Docker Image
-    runs-on: ubuntu-latest
-    needs: test
-    # needs: test means this job WAITS for test job to pass first
-    # Creates a chain: test must pass → then build runs
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Login to GitHub Container Registry
-        run: |
-          echo "${{ secrets.GHCR_TOKEN }}" | \
-          docker login ghcr.io \
-          -u sreelakshmi-gopakumar \
-          --password-stdin
-        # ${{ secrets.GHCR_TOKEN }} reads your encrypted secret
-        # GitHub replaces this with the real token at runtime
-        # The actual token never appears in logs or code
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-      - name: Build Docker image with two tags
+      - name: Install dependencies
+        run: pip install -r app/requirements.txt pytest
+
+      - name: Run pytest
+        run: pytest app/tests/ -v
+
+  build-push:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    needs: test
+    # only build when pushing to main or dev, not on pull requests
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to container registry
+        run: |
+          echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io \
+            -u sreelakshmi-gopakumar --password-stdin
+
+      - name: Build image
         run: |
           docker build \
             -t $IMAGE:${{ github.sha }} \
             -t $IMAGE:latest \
             app/
-        # We tag the image with TWO names:
-        # 1. github.sha = unique fingerprint of this exact commit
-        #    Example: a3f2c1b9d8e7f6a5b4c3d2e1
-        #    This means you can always trace which code is running
-        # 2. latest = always points to the most recent build
-        #    Easy to reference when testing
 
-      - name: Upload image to GitHub Container Registry
+      - name: Push image
         run: |
           docker push $IMAGE:${{ github.sha }}
           docker push $IMAGE:latest
 
-  # ═══ JOB 3: SECURITY SCAN ══════════════════════════════════════
-  # Scan the Docker image for known security vulnerabilities
-  # before it ever touches our cluster
   security-scan:
-    name: Trivy Security Scan
+    name: Trivy vulnerability scan
     runs-on: ubuntu-latest
     needs: build-push
-
+    if: github.event_name == 'push'
     steps:
-      - name: Scan image for vulnerabilities
+      - name: Scan for critical CVEs
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.IMAGE }}:latest
           format: table
           exit-code: "1"
           severity: CRITICAL
-        # Trivy is a free open-source security scanner
-        # It checks your image against a huge database of known CVEs
-        # (Common Vulnerabilities and Exposures)
-        # exit-code: "1" = if ANY critical CVE found, fail the pipeline
-        # This means we never deploy an image with critical security holes
 
-  # ═══ JOB 4: DEPLOY TO AKS ══════════════════════════════════════
-  # Finally deploy the tested, scanned image to our Kubernetes cluster
   deploy:
     name: Deploy to AKS
     runs-on: ubuntu-latest
     needs: security-scan
-    # Only runs if security scan passed — no vulnerable code in production
-
+    # only deploy when merging/pushing to main, not dev
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
 
-      - name: Login to Azure using service principal
+      - name: Log in to Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-        # Uses the JSON credentials we added as a secret
-        # GitHub Actions logs into Azure as our robot account
 
-      - name: Point kubectl at our AKS cluster
+      - name: Connect to AKS cluster
         uses: azure/aks-set-context@v3
         with:
           resource-group: ${{ secrets.AZURE_RG }}
           cluster-name: ${{ secrets.AZURE_AKS_NAME }}
-        # Downloads the kubeconfig for our cluster
-        # After this step kubectl commands work against our AKS cluster
-        # Just like when we ran az aks get-credentials locally
 
-      - name: Replace IMAGE_TAG placeholder with real commit SHA
-        run: |
-          sed -i "s|IMAGE_TAG|${{ github.sha }}|g" k8s/deployment.yaml
-        # sed is a text replacement tool built into Linux
-        # It finds the text IMAGE_TAG in deployment.yaml
-        # and replaces it with the actual git commit SHA
-        # This ensures Kubernetes pulls the exact image
-        # that was built and scanned in this pipeline run
+      - name: Swap IMAGE_TAG placeholder for real commit SHA
+        run: sed -i "s|latest|${{ github.sha }}|g" k8s/deployment.yaml
 
-      - name: Apply all Kubernetes manifest files
+      - name: Apply Kubernetes manifests
         run: kubectl apply -f k8s/
-        # Reads all YAML files in the k8s/ folder
-        # Tells Kubernetes: make the cluster look like this
-        # Kubernetes figures out what changed and updates accordingly
